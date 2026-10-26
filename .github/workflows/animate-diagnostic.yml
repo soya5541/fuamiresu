@@ -1,0 +1,94 @@
+name: Animate Japan access diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose-animate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Install parser
+        run: python -m pip install --disable-pip-version-check requests beautifulsoup4
+      - name: Test Animate product and search pages
+        shell: bash
+        run: |
+          python - <<'PY'
+          import re
+          import time
+          from urllib.parse import urlencode, urljoin
+          import requests
+          from bs4 import BeautifulSoup
+
+          ISBN = '9784047377486'
+          BASE = 'https://www.animate-onlineshop.jp'
+          TARGET = 'ファミレス行こ。(上) アクリルスタンド付き特装版'
+          TESTS = [
+              ('product_page', BASE + '/pd/2326011/'),
+              ('search_title', BASE + '/products/list.php?' + urlencode({'mode': 'search', 'smt': 'ファミレス行こ。 上'})),
+              ('search_isbn', BASE + '/products/list.php?' + urlencode({'mode': 'search', 'smt': ISBN})),
+          ]
+          HEADERS = {
+              'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+              'Accept-Language': 'ja-JP,ja;q=0.9,en;q=0.7',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          }
+          session = requests.Session()
+          for label, url in TESTS:
+              print('\n' + '=' * 60, flush=True)
+              print('TEST:', label, flush=True)
+              print('URL:', url, flush=True)
+              try:
+                  r = session.get(url, headers=HEADERS, timeout=25, allow_redirects=True)
+                  print('HTTP:', r.status_code, flush=True)
+                  print('FINAL URL:', r.url, flush=True)
+                  print('HTML BYTES:', len(r.content), flush=True)
+                  soup = BeautifulSoup(r.text, 'html.parser')
+                  print('PAGE TITLE:', (soup.title.get_text(' ', strip=True) if soup.title else '(none)')[:160], flush=True)
+                  for element in soup(['script', 'style', 'noscript', 'svg']):
+                      element.decompose()
+                  body = soup.get_text(' ', strip=True)
+                  print('ISBN IN PAGE:', ISBN in body, flush=True)
+                  print('TARGET TITLE IN PAGE:', TARGET in body, flush=True)
+                  print('BLOCK INDICATOR:', bool(re.search(r'captcha|access denied|403 forbidden|robot check|アクセスが集中|アクセス制限', body[:12000], re.I)), flush=True)
+                  if r.status_code != 200:
+                      print('RESULT: http_error; do not infer stock status', flush=True)
+                      continue
+                  if label == 'product_page':
+                      if ISBN not in body or 'アクリルスタンド付き特装版' not in body:
+                          print('RESULT: target_identity_not_verified', flush=True)
+                      else:
+                          for token in ['在庫なし', '販売終了', '在庫あり', 'カートに入れる', '予約受付中', '取り寄せ', '残りわずか']:
+                              print('PAGE PHRASE', token, ':', token in body, flush=True)
+                          print('RESULT: product_page_readable; phrase matches alone do not prove stock', flush=True)
+                  else:
+                      # Only print snippets tied to a matching product link. Never use unrelated site-wide stock phrases.
+                      anchors = soup.select('a[href*="/pd/2326011"]')
+                      print('TARGET PRODUCT LINKS:', len(anchors), flush=True)
+                      for a in anchors[:3]:
+                          node = a
+                          chosen = None
+                          for _ in range(6):
+                              if node is None:
+                                  break
+                              t = node.get_text(' ', strip=True)
+                              if 'アクリルスタンド付き特装版' in t and any(x in t for x in ['販売状況', '販売終了', '在庫あり', '予約受付中', '取り寄せ']):
+                                  chosen = t
+                                  break
+                              node = node.parent
+                          print('TARGET LINK:', urljoin(BASE, a.get('href', '')), flush=True)
+                          print('TARGET CARD TEXT:', (chosen or '(no isolated card status found)')[:450], flush=True)
+                      if anchors:
+                          print('RESULT: target_search_link_found; inspect isolated card status', flush=True)
+                      elif TARGET in body or ISBN in body:
+                          print('RESULT: target_text_found_but_card_not_isolated', flush=True)
+                      else:
+                          print('RESULT: no_target_in_parsed_search; not proof of absence', flush=True)
+              except requests.RequestException as exc:
+                  print('RESULT: request_error', type(exc).__name__, str(exc)[:180], flush=True)
+              time.sleep(2)
+          print('\nDIAGNOSTIC ONLY: no alerts, no repository changes, no stock assertions.', flush=True)
+          PY
