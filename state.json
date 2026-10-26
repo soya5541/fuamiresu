@@ -1,1 +1,18 @@
-{}
+{
+  "KADOKAWA": {
+    "status": "unavailable",
+    "detail": "在庫がありません, 在庫なし"
+  },
+  "Animate": {
+    "status": "unknown",
+    "detail": "접근 실패: HTTPError"
+  },
+  "Kinokuniya": {
+    "status": "unavailable",
+    "detail": "ご注文を受け付けておりません"
+  },
+  "Maruzen Junkudo": {
+    "status": "unknown",
+    "detail": "상충하는 문구: 売り切れ, カートに入れる"
+  }
+}
