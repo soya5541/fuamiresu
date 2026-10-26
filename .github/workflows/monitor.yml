@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       test_notification:
-        description: 'Send one test GitHub Issue (and Telegram if configured), without running monitor'
+        description: 'Send one test GitHub Issue and Gmail email, without running monitor'
         required: false
         type: boolean
         default: false
@@ -39,6 +39,8 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TEST_NOTIFICATION: ${{ inputs.test_notification }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
         shell: bash
         run: |
           python - <<'PY'
@@ -47,6 +49,8 @@ jobs:
           import subprocess
           from datetime import datetime, timezone
           import requests
+          import smtplib
+          from email.message import EmailMessage
 
           test = os.getenv('TEST_NOTIFICATION', '').lower() == 'true'
           if test:
@@ -72,6 +76,19 @@ jobs:
                   + '\n\n자동 판독 결과에는 오탐이 있을 수 있습니다.'
               )
               subprocess.run(['gh', 'issue', 'create', '--title', title, '--body', body], check=True)
+              mail_address = os.getenv('GMAIL_ADDRESS', '').strip()
+              app_password = os.getenv('GMAIL_APP_PASSWORD', '').strip()
+              if not mail_address or not app_password:
+                  raise RuntimeError('Email secrets GMAIL_ADDRESS and GMAIL_APP_PASSWORD are required')
+              msg = EmailMessage()
+              msg['Subject'] = title
+              msg['From'] = mail_address
+              msg['To'] = mail_address
+              msg.set_content(body)
+              with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=25) as smtp:
+                  smtp.login(mail_address, app_password)
+                  smtp.send_message(msg)
+              print('Gmail email sent successfully')
               token = os.getenv('TELEGRAM_BOT_TOKEN')
               chat_id = os.getenv('TELEGRAM_CHAT_ID')
               if token and chat_id:
@@ -87,7 +104,7 @@ jobs:
                       # An issue was already created; avoid repeating it every run.
                       print('WARNING: Telegram delivery failed:', type(exc).__name__)
               else:
-                  print('Telegram not configured; GitHub Issue created only')
+                  print('Telegram not configured; Gmail and GitHub Issue used')
           PY
       - name: Save state for deduplication
         if: ${{ inputs.test_notification != true }}
@@ -100,4 +117,3 @@ jobs:
             git commit -m 'Update stock monitor state'
             git push
           fi
-
