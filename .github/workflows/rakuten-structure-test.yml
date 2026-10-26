@@ -1,0 +1,101 @@
+name: Rakuten product-area diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose-rakuten:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Install parser
+        run: python -m pip install --quiet requests beautifulsoup4
+      - name: Inspect ordering labels and their HTML containers
+        shell: bash
+        run: |
+          python - <<'PY'
+          import re
+          import requests
+          from bs4 import BeautifulSoup, NavigableString
+
+          URL = 'https://books.rakuten.co.jp/rb/17625532/'
+          ISBN = '9784047377486'
+          TERMS = [
+              'ご注文できない商品', 'ご注文いただけない商品',
+              '現在ご注文いただけません', '在庫なし', '売り切れ',
+              '在庫あり', '買い物かごに入れる', 'カートに入れる',
+              'お取り寄せ', '予約受付中', '注文可能',
+          ]
+          def short(value, n=180):
+              return re.sub(r'\s+', ' ', str(value)).strip()[:n]
+
+          def label(tag):
+              if not getattr(tag, 'name', None):
+                  return '(none)'
+              attrs = []
+              if tag.get('id'):
+                  attrs.append('#' + short(tag['id'], 70))
+              if tag.get('class'):
+                  attrs.append('.' + '.'.join(short(c, 45) for c in tag['class'][:4]))
+              return tag.name + ''.join(attrs)
+
+          print('URL:', URL)
+          try:
+              r = requests.get(URL, headers={
+                  'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36',
+                  'Accept-Language': 'ja-JP,ja;q=0.9',
+              }, timeout=25)
+              print('HTTP:', r.status_code)
+              print('FINAL URL:', r.url)
+              r.raise_for_status()
+              soup = BeautifulSoup(r.content, 'html.parser')
+              print('HTML BYTES:', len(r.content))
+              full = soup.get_text(' ', strip=True)
+              print('ISBN IN HTML:', ISBN in r.text)
+              print('TITLE IN PAGE:', 'ファミレス行こ' in full)
+              if ISBN not in r.text or 'ファミレス行こ' not in full:
+                  print('RESULT: UNKNOWN - product identity not verified')
+              else:
+                  print('RESULT: PRODUCT PAGE VERIFIED; inspecting element locations')
+
+              for el in soup(['script', 'style', 'noscript', 'svg']):
+                  el.decompose()
+              print('\n=== ORDERING TERMS: EXACT TEXT NODES AND ANCESTORS ===')
+              for term in TERMS:
+                  matches = []
+                  for node in soup.find_all(string=True):
+                      if isinstance(node, NavigableString) and term in str(node):
+                          matches.append(node)
+                  print('\nTERM:', term, 'TEXT NODES:', len(matches))
+                  for i, node in enumerate(matches[:4], 1):
+                      parent = node.parent
+                      print(' MATCH', i, 'NODE:', short(node, 230))
+                      print('  PATH:', ' > '.join(label(t) for t in [parent] + list(parent.parents)[:5] if getattr(t, 'name', None)))
+                      for depth in (1, 2, 3):
+                          el = parent
+                          for _ in range(depth - 1):
+                              el = el.parent if el else None
+                          if el and getattr(el, 'name', None):
+                              print('  ANCESTOR', depth, label(el), 'TEXT:', short(el.get_text(' ', strip=True), 240))
+                  if len(matches) > 4:
+                      print('  ... additional matches omitted')
+
+              print('\n=== STRUCTURED PRODUCT AVAILABILITY MARKERS ===')
+              count = 0
+              for tag in soup.find_all(True):
+                  if count >= 12:
+                      break
+                  attrs = ' '.join(str(tag.get(k, '')) for k in ('itemprop', 'content', 'property', 'data-stock', 'data-availability'))
+                  if ('availability' in attrs.lower() or 'instock' in attrs.lower() or 'outofstock' in attrs.lower()):
+                      print('MARKER:', label(tag), 'ATTRS:', short({k:v for k,v in tag.attrs.items() if k in ('itemprop','content','property','data-stock','data-availability')}, 220))
+                      count += 1
+              if not count:
+                  print('No explicit structured availability markers found in parsed HTML')
+              print('\nRESULT: DIAGNOSTIC ONLY - no purchase availability claim')
+          except Exception as exc:
+              print('RESULT: ERROR', type(exc).__name__, short(exc, 260))
+              raise
+          PY
