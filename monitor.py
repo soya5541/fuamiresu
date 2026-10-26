@@ -190,9 +190,16 @@ def check(name, cfg, session=None):
         soup = BeautifulSoup(raw_html, "html.parser")
         for tag in soup(["script", "style", "noscript", "svg"]):
             tag.decompose()
-        if not product_verified(soup, raw_html):
-            return result("unknown", "ISBN/특장판 상품명 검증 실패 (차단 또는 페이지 변경)")
         checker = cfg["checker"]
+        # Preserve KADOKAWA's original, previously tested identity check.
+        # Other stores require both the ISBN and the special-edition title.
+        if checker == "kadokawa":
+            identified = (ISBN in normalized_text(soup) or
+                          "アクリルスタンド付き特装版" in normalized_text(soup))
+        else:
+            identified = product_verified(soup, raw_html)
+        if not identified:
+            return result("unknown", "ISBN/특장판 상품명 검증 실패 (차단 또는 페이지 변경)")
         if checker == "kadokawa":
             return check_kadokawa(soup)
         if checker == "tower":
