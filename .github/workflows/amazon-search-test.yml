@@ -1,0 +1,83 @@
+name: Amazon Japan search diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose-amazon:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Install HTML parser
+        run: python -m pip install --disable-pip-version-check requests beautifulsoup4
+      - name: Test Amazon Japan search results
+        shell: bash
+        run: |
+          python - <<'PY'
+          import re
+          import time
+          from urllib.parse import urljoin
+          import requests
+          from bs4 import BeautifulSoup
+
+          ISBN = '9784047377486'
+          SEARCHES = [
+              ('ISBN', ISBN),
+              ('Japanese title', 'ファミレス行こ 上 アクリルスタンド付き特装版'),
+          ]
+          HEADERS = {
+              'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+              'Accept-Language': 'ja-JP,ja;q=0.9,en;q=0.6',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          }
+          session = requests.Session()
+          for label, query in SEARCHES:
+              print('\n' + '=' * 55, flush=True)
+              print('QUERY:', label, '|', query, flush=True)
+              try:
+                  response = session.get('https://www.amazon.co.jp/s', params={'k': query}, headers=HEADERS, timeout=25)
+                  print('HTTP:', response.status_code, flush=True)
+                  print('FINAL URL:', response.url, flush=True)
+                  print('HTML BYTES:', len(response.content), flush=True)
+                  soup = BeautifulSoup(response.text, 'html.parser')
+                  title = soup.title.get_text(' ', strip=True) if soup.title else '(none)'
+                  print('PAGE TITLE:', title[:180], flush=True)
+                  body = soup.get_text(' ', strip=True)
+                  blocked = bool(re.search(r'captcha|robot check|enter the characters|文字を入力|画像に表示されている文字|自動化されたアクセス', body[:10000], re.I))
+                  print('BLOCK/CAPTCHA INDICATOR:', blocked, flush=True)
+                  cards = soup.select('[data-component-type="s-search-result"][data-asin]')
+                  print('PRODUCT RESULT CARDS:', len(cards), flush=True)
+                  matches = []
+                  for card in cards:
+                      asin = (card.get('data-asin') or '').strip()
+                      if not asin:
+                          continue
+                      heading = card.select_one('h2')
+                      product_title = heading.get_text(' ', strip=True) if heading else ''
+                      anchor = card.select_one('h2 a[href]')
+                      link = urljoin('https://www.amazon.co.jp', anchor.get('href')) if anchor else f'https://www.amazon.co.jp/dp/{asin}'
+                      normalized = re.sub(r'\s+', '', product_title)
+                      relevant = (ISBN in product_title or ('ファミレス行こ' in normalized and ('アクリルスタンド' in normalized or '特装版' in normalized)))
+                      if relevant:
+                          matches.append((asin, product_title[:180], link))
+                  print('MATCHING SPECIAL EDITION CARDS:', len(matches), flush=True)
+                  for asin, product_title, link in matches[:5]:
+                      print('MATCH ASIN:', asin, flush=True)
+                      print('MATCH TITLE:', product_title, flush=True)
+                      print('MATCH LINK:', link, flush=True)
+                  if response.status_code != 200 or blocked:
+                      print('RESULT: blocked_or_http_error (cannot infer absence of product)', flush=True)
+                  elif not cards:
+                      print('RESULT: no_parseable_cards (cannot infer absence of product)', flush=True)
+                  elif matches:
+                      print('RESULT: matching_search_result_found (NOT verified purchasable)', flush=True)
+                  else:
+                      print('RESULT: search_cards_read_but_no_exact_match (NOT proof of out-of-stock)', flush=True)
+              except requests.RequestException as exc:
+                  print('RESULT: request_error', type(exc).__name__, flush=True)
+              time.sleep(2)
+          print('\nDIAGNOSTIC ONLY: no notifications, no stock claims, no repository modifications.', flush=True)
+          PY
