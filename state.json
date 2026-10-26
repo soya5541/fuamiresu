@@ -8,11 +8,19 @@
     "detail": "접근 실패: HTTPError"
   },
   "Kinokuniya": {
-    "status": "unavailable",
-    "detail": "ご注文を受け付けておりません"
+    "status": "unknown",
+    "detail": "접근 실패: ReadTimeout"
   },
   "Maruzen Junkudo": {
     "status": "unknown",
     "detail": "상충하는 문구: 売り切れ, カートに入れる"
+  },
+  "Tower Records": {
+    "status": "unavailable",
+    "detail": "주문 불가 표시: 現在ご注文いただけません, ご注文いただけません"
+  },
+  "Rakuten Books": {
+    "status": "unknown",
+    "detail": "라쿠텐 상품 구매 영역(#purchaseBoxMain) 없음"
   }
 }
