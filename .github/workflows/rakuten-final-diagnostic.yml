@@ -1,0 +1,116 @@
+name: Rakuten Books final diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose-rakuten:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Install HTML parser
+        run: python -m pip install --disable-pip-version-check --quiet requests beautifulsoup4
+      - name: Compare Rakuten product purchase sections
+        shell: bash
+        run: |
+          python - <<'PY'
+          import re
+          import time
+          import requests
+          from bs4 import BeautifulSoup
+
+          URL = 'https://books.rakuten.co.jp/rb/17625532/'
+          ISBN = '9784047377486'
+          NEG = ('ご注文できない商品', 'ご注文いただけない商品',
+                 '現在ご注文いただけません', '在庫なし', '売り切れ')
+          POS = ('買い物かごに入れる', 'カートに入れる', '注文する',
+                 '予約する', 'お取り寄せ', '在庫あり')
+          SELECTORS = [
+              '#purchaseBoxMain', '#purchaseBoxMain .availability',
+              '#purchaseBoxMain .status-area',
+              '#purchaseBoxMain .status-heading',
+              '#s21_status_warning_help',
+              '[id*="purchase"]', '[class*="availability"]',
+          ]
+
+          def short(s, n=240):
+              return re.sub(r'\s+', ' ', str(s)).strip()[:n]
+
+          def describe(tag):
+              if tag is None:
+                  return '(missing)'
+              return tag.name + (('#' + tag.get('id')) if tag.get('id') else '') + ''.join('.' + c for c in tag.get('class', [])[:3])
+
+          headers = {
+              'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept-Language': 'ja-JP,ja;q=0.9',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          }
+
+          for attempt in (1, 2):
+              print('\n' + '=' * 55, flush=True)
+              print('ATTEMPT:', attempt, flush=True)
+              try:
+                  response = requests.get(URL, headers=headers, timeout=25)
+                  print('HTTP:', response.status_code, flush=True)
+                  print('FINAL URL:', response.url, flush=True)
+                  print('HTML BYTES:', len(response.content), flush=True)
+                  print('CONTENT TYPE:', response.headers.get('Content-Type', ''), flush=True)
+                  response.raise_for_status()
+                  raw = response.text
+                  soup = BeautifulSoup(raw, 'html.parser')
+                  visible = soup.get_text(' ', strip=True)
+                  print('PAGE TITLE:', short(soup.title.get_text(' ', strip=True) if soup.title else '(none)'), flush=True)
+                  print('ISBN IN HTML:', ISBN in raw, flush=True)
+                  print('PRODUCT TITLE IN TEXT:', 'ファミレス行こ' in visible, flush=True)
+                  if ISBN not in raw or 'ファミレス行こ' not in visible:
+                      print('RESULT: unknown_product_identity', flush=True)
+                      continue
+
+                  for sel in SELECTORS:
+                      nodes = soup.select(sel)
+                      print('SELECTOR:', sel, '| COUNT:', len(nodes), flush=True)
+                      for node in nodes[:2]:
+                          print('  ELEMENT:', describe(node), '| TEXT:', short(node.get_text(' ', strip=True), 280), flush=True)
+
+                  # Reproduce the monitor's script/style removal to detect any differences.
+                  clean = BeautifulSoup(raw, 'html.parser')
+                  for tag in clean(['script', 'style', 'noscript', 'svg']):
+                      tag.decompose()
+                  box = clean.select_one('#purchaseBoxMain')
+                  print('AFTER MONITOR CLEANUP purchaseBoxMain:', bool(box), flush=True)
+
+                  # Inspect actual text-node ancestry to avoid unrelated promotional copy.
+                  print('ORDER TERMS IN VISIBLE TEXT:', flush=True)
+                  for term in NEG + POS:
+                      hits = []
+                      for node in clean.find_all(string=True):
+                          if term in str(node):
+                              parent = node.parent
+                              path = ' > '.join(describe(t) for t in [parent] + list(parent.parents)[:3] if getattr(t, 'name', None))
+                              hits.append((short(node, 100), path))
+                      print(' TERM:', term, '| NODES:', len(hits), flush=True)
+                      for snippet, path in hits[:2]:
+                          print('   TEXT:', snippet, '| PATH:', path, flush=True)
+
+                  if box is None:
+                      print('RESULT: product_verified_but_purchase_box_missing; keep unknown', flush=True)
+                  else:
+                      status_area = box.select_one('.availability')
+                      if status_area is None:
+                          print('RESULT: purchase_box_found_but_availability_missing; keep unknown', flush=True)
+                      else:
+                          status_text = status_area.get_text(' ', strip=True)
+                          negatives = [x for x in NEG if x in status_text]
+                          print('PRODUCT-SCOPED NEGATIVES:', negatives, flush=True)
+                          print('RESULT:', 'unavailable_signal_in_product_section' if negatives else 'no_negative_signal; positive action needs validation', flush=True)
+              except requests.RequestException as exc:
+                  print('RESULT: request_error:', type(exc).__name__, short(exc, 180), flush=True)
+              if attempt == 1:
+                  time.sleep(2)
+
+          print('\nDIAGNOSTIC ONLY: no stock alert, no file changes.', flush=True)
+          PY
