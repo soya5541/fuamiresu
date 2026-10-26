@@ -1,26 +1,22 @@
 {
   "KADOKAWA": {
     "status": "unavailable",
-    "detail": "在庫がありません, 在庫なし"
-  },
-  "Animate": {
-    "status": "unknown",
-    "detail": "접근 실패: HTTPError"
-  },
-  "Kinokuniya": {
-    "status": "unknown",
-    "detail": "접근 실패: ReadTimeout"
-  },
-  "Maruzen Junkudo": {
-    "status": "unknown",
-    "detail": "상충하는 문구: 売り切れ, カートに入れる"
+    "detail": "KADOKAWA: 在庫がありません, 在庫なし",
+    "alerted_in_current_cycle": false
   },
   "Tower Records": {
     "status": "unavailable",
-    "detail": "주문 불가 표시: 現在ご注文いただけません, ご注文いただけません"
+    "detail": "타워레코드 주문 불가 표시: 現在ご注文いただけません, ご注文いただけません",
+    "alerted_in_current_cycle": false
   },
   "Rakuten Books": {
+    "status": "unavailable",
+    "detail": "라쿠텐 상품 구매 상태: ご注文できない商品, ご注文いただけない商品",
+    "alerted_in_current_cycle": false
+  },
+  "Maruzen Junkudo": {
     "status": "unknown",
-    "detail": "라쿠텐 상품 구매 영역(#purchaseBoxMain) 없음"
+    "detail": "마루젠 JSON available=true, 상품 HTML 売り切れ: 상충",
+    "alerted_in_current_cycle": false
   }
 }
