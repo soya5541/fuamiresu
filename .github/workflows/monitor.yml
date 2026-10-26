@@ -1,14 +1,24 @@
 name: Special edition stock monitor
+
 on:
   schedule:
     - cron: '3,13,23,33,43,53 * * * *'
   workflow_dispatch:
+    inputs:
+      test_notification:
+        description: 'Send one test GitHub Issue (and Telegram if configured), without running monitor'
+        required: false
+        type: boolean
+        default: false
+
 permissions:
   contents: write
   issues: write
+
 concurrency:
   group: stock-monitor
   cancel-in-progress: false
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -18,26 +28,70 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install -r requirements.txt
-      - run: python monitor.py
-      - name: Create GitHub issue on new possible availability
+      - name: Install requirements
+        run: pip install -r requirements.txt
+      - name: Check stock
+        if: ${{ inputs.test_notification != true }}
+        run: python monitor.py
+      - name: Create GitHub issue for new availability or notification test
         env:
           GH_TOKEN: ${{ github.token }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TEST_NOTIFICATION: ${{ inputs.test_notification }}
+        shell: bash
         run: |
           python - <<'PY'
-          import json, os, subprocess, requests
-          from datetime import datetime,timezone
-          for a in json.load(open('alerts.json')):
-              title=f"[재고 감지] {a['name']} - ファミレス行こ。 특장판"
-              body=f"주문 가능성을 나타내는 문구가 감지되었습니다. 실제 주문 가능 여부는 반드시 상품 페이지에서 확인하세요.\n\n판매처: {a['name']}\n표시 문구: {a['detail']}\n상품 링크: {a['url']}\n확인 시각(UTC): {datetime.now(timezone.utc).isoformat()}\n\n자동 판독 결과로 오탐이 있을 수 있습니다."
-              subprocess.run(['gh','issue','create','--title',title,'--body',body],check=True)
-              if os.getenv('TELEGRAM_BOT_TOKEN') and os.getenv('TELEGRAM_CHAT_ID'):
-                  response=requests.post(f"https://api.telegram.org/bot{os.environ['TELEGRAM_BOT_TOKEN']}/sendMessage",json={'chat_id':os.environ['TELEGRAM_CHAT_ID'],'text':title+'\n'+a['url']+'\n'+a['detail']},timeout=15)
-                  response.raise_for_status()
+          import json
+          import os
+          import subprocess
+          from datetime import datetime, timezone
+          import requests
+
+          test = os.getenv('TEST_NOTIFICATION', '').lower() == 'true'
+          if test:
+              alerts = [{
+                  'name': 'TEST',
+                  'url': 'https://github.com/${{ github.repository }}/actions',
+                  'detail': '테스트 메시지입니다. 실제 재고 감지가 아닙니다.',
+              }]
+          else:
+              with open('alerts.json', encoding='utf-8') as f:
+                  alerts = json.load(f)
+
+          for alert in alerts:
+              title = ('[테스트 알림] 파미레스 특장판 모니터' if test else
+                       f"[재고 감지] {alert['name']} - ファミレス行こ。 특장판")
+              body = (
+                  ('알림 연결 테스트입니다. 실제 재고가 발견된 것이 아닙니다.' if test else
+                   '주문 가능성을 나타내는 신호가 감지됐습니다. 실제 주문 가능 여부는 상품 페이지에서 확인하세요.')
+                  + f"\n\n판매처: {alert['name']}"
+                  + f"\n표시 문구: {alert['detail']}"
+                  + f"\n상품 링크: {alert['url']}"
+                  + f"\n확인 시각(UTC): {datetime.now(timezone.utc).isoformat()}"
+                  + '\n\n자동 판독 결과에는 오탐이 있을 수 있습니다.'
+              )
+              subprocess.run(['gh', 'issue', 'create', '--title', title, '--body', body], check=True)
+              token = os.getenv('TELEGRAM_BOT_TOKEN')
+              chat_id = os.getenv('TELEGRAM_CHAT_ID')
+              if token and chat_id:
+                  try:
+                      response = requests.post(
+                          f'https://api.telegram.org/bot{token}/sendMessage',
+                          json={'chat_id': chat_id, 'text': title + '\n' + alert['url'] + '\n' + alert['detail']},
+                          timeout=15,
+                      )
+                      response.raise_for_status()
+                      print('Telegram delivery request succeeded')
+                  except requests.RequestException as exc:
+                      # An issue was already created; avoid repeating it every run.
+                      print('WARNING: Telegram delivery failed:', type(exc).__name__)
+              else:
+                  print('Telegram not configured; GitHub Issue created only')
           PY
       - name: Save state for deduplication
+        if: ${{ inputs.test_notification != true }}
+        shell: bash
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
@@ -46,3 +100,4 @@ jobs:
             git commit -m 'Update stock monitor state'
             git push
           fi
+
