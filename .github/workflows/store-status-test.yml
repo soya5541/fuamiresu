@@ -1,0 +1,87 @@
+name: Tower and Rakuten status test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Install parser
+        run: python -m pip install --quiet requests beautifulsoup4
+      - name: Detect product ordering status
+        shell: bash
+        run: |
+          python - <<'PY'
+          import re
+          import requests
+          from bs4 import BeautifulSoup
+
+          ISBN = '9784047377486'
+          STORES = {
+              'TOWER RECORDS': {
+                  'url': 'https://tower.jp/item/6178367',
+                  'negative': ['現在ご注文いただけません', 'ご注文いただけません', '販売終了', '在庫なし'],
+                  'positive': ['お取り寄せ', 'メーカー取り寄せ', '在庫あり', 'カートに入れる'],
+              },
+              'RAKUTEN BOOKS': {
+                  'url': 'https://books.rakuten.co.jp/rb/17625532/',
+                  'negative': ['ご注文できない商品', 'ご注文いただけない商品', '現在ご注文いただけません', '在庫なし', '売り切れ'],
+                  'positive': ['買い物かごに入れる', 'カートに入れる', '在庫あり', 'お取り寄せ'],
+              },
+          }
+
+          def nearby(text, phrase, radius=85):
+              found = []
+              for m in list(re.finditer(re.escape(phrase), text))[:3]:
+                  found.append(text[max(0, m.start()-radius):m.end()+radius])
+              return found
+
+          def check(name, config):
+              print('\n' + '='*65)
+              print('STORE:', name)
+              print('URL:', config['url'])
+              try:
+                  response = requests.get(config['url'], headers={
+                      'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36',
+                      'Accept-Language': 'ja-JP,ja;q=0.9',
+                  }, timeout=22)
+                  print('HTTP:', response.status_code)
+                  print('FINAL URL:', response.url)
+                  response.raise_for_status()
+                  soup = BeautifulSoup(response.content, 'html.parser')
+                  for tag in soup(['script', 'style', 'noscript', 'svg']):
+                      tag.decompose()
+                  text = re.sub(r'\s+', ' ', soup.get_text(' ', strip=True))
+                  identity = (ISBN in response.text or ISBN in text) and ('ファミレス行こ' in text)
+                  print('PRODUCT IDENTITY VERIFIED:', identity)
+                  if not identity:
+                      print('CLASSIFICATION: unknown (product identity could not be verified)')
+                      return
+                  neg = [term for term in config['negative'] if term in text]
+                  pos = [term for term in config['positive'] if term in text]
+                  for label, terms in [('NEGATIVE', neg), ('POSITIVE', pos)]:
+                      for term in terms:
+                          print(label + ' TERM:', term)
+                          for snippet in nearby(text, term):
+                              print('  CONTEXT:', snippet)
+                  if neg:
+                      if pos:
+                          print('CLASSIFICATION: unknown (conflicting terms; manual review)')
+                      else:
+                          print('CLASSIFICATION: unavailable (explicit negative ordering text)')
+                  elif pos:
+                      print('CLASSIFICATION: possible (positive term only; NOT confirmed purchasable)')
+                  else:
+                      print('CLASSIFICATION: unknown (no recognizable ordering text)')
+              except Exception as exc:
+                  print('CLASSIFICATION: unknown (request/parser error)')
+                  print('ERROR:', type(exc).__name__, str(exc)[:220])
+
+          for store, config in STORES.items():
+              check(store, config)
+          PY
