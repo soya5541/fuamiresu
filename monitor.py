@@ -173,6 +173,14 @@ def check_maruzen(session, soup, url):
     # Restrict conflicting HTML signals to the product form/container.
     section = soup.select_one(".product__info-container") or soup.select_one(".product-form")
     section_text = normalized_text(section)
+    # Confirmed in a real browser: when sold out, the cart button stays enabled
+    # and the JSON still says available=true, but the net-store stock line
+    # says one of these. It is the authoritative signal.
+    negatives = [x for x in (
+        "ネットストア在庫がありません", "お取り扱いできません",
+    ) if x in section_text]
+    if negatives:
+        return result("unavailable", "마루젠 넷스토어 재고 없음: " + ", ".join(negatives))
     sold_out = any(x in section_text for x in ("売り切れ", "在庫切れ", "在庫なし"))
     if available and sold_out:
         return result("unknown", "마루젠 JSON available=true, 상품 HTML 売り切れ: 상충")
