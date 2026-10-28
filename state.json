@@ -1,7 +1,7 @@
 {
   "KADOKAWA": {
-    "status": "unknown",
-    "detail": "접근/데이터 오류: HTTPError",
+    "status": "unavailable",
+    "detail": "KADOKAWA: 在庫がありません, 在庫なし",
     "alerted_in_current_cycle": false
   },
   "Tower Records": {
