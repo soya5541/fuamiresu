@@ -10,9 +10,9 @@
     "alerted_in_current_cycle": false
   },
   "Rakuten Books": {
-    "status": "possible",
-    "detail": "라쿠텐 상품 구매 영역의 활성 버튼: 買い物かごに入れる",
-    "alerted_in_current_cycle": true
+    "status": "unavailable",
+    "detail": "라쿠텐 상품 구매 상태: ご注文できない商品, ご注文いただけない商品",
+    "alerted_in_current_cycle": false
   },
   "Maruzen Junkudo": {
     "status": "unknown",
