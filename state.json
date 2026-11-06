@@ -5,8 +5,8 @@
     "alerted_in_current_cycle": false
   },
   "Tower Records": {
-    "status": "unavailable",
-    "detail": "타워레코드 주문 불가 표시: 現在ご注文いただけません, ご注文いただけません",
+    "status": "unknown",
+    "detail": "접근/데이터 오류: HTTPError",
     "alerted_in_current_cycle": false
   },
   "Rakuten Books": {
