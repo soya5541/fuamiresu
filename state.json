@@ -6,7 +6,7 @@
   },
   "Tower Records": {
     "status": "unknown",
-    "detail": "접근/데이터 오류: HTTPError",
+    "detail": "ISBN/특장판 상품명 검증 실패 (차단 또는 페이지 변경)",
     "alerted_in_current_cycle": false
   },
   "Rakuten Books": {
