@@ -10,8 +10,8 @@
     "alerted_in_current_cycle": false
   },
   "Rakuten Books": {
-    "status": "unavailable",
-    "detail": "라쿠텐 상품 구매 상태: ご注文できない商品, ご注文いただけない商品",
+    "status": "unknown",
+    "detail": "접근/데이터 오류: HTTPError",
     "alerted_in_current_cycle": false
   },
   "Maruzen Junkudo": {
